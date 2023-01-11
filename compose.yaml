@@ -1,0 +1,97 @@
+services:
+  minio:
+    image: quay.io/minio/minio:RELEASE.2023-01-02T09-40-09Z
+    command: server /data --console-address ":9001"
+    container_name: minio
+    environment:
+      - MINIO_ROOT_PASSWORD_FILE=/run/secrets/minio-root-password
+      - MINIO_ROOT_USER_FILE=/run/secrets/minio-root-username
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    restart: unless-stopped
+    secrets:
+      - minio-root-password
+      - minio-root-username
+    volumes:
+      - minio-data:/data
+
+  mongo:
+    image: mongo:4.4
+    command: --replSet rs0 --keyFile /run/secrets/mongo-keyfile --bind_ip_all
+    container_name: mongo
+    environment:
+      - MONGO_INITDB_ROOT_PASSWORD_FILE=/run/secrets/mongo-root-password
+      - MONGO_INITDB_ROOT_USERNAME_FILE=/run/secrets/mongo-root-username
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongo mongo:27017/test --quiet
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    ports:
+      - "27017:27017"
+    restart: unless-stopped
+    secrets:
+      - mongo-keyfile
+      - mongo-root-password
+      - mongo-root-username
+    volumes:
+      - mongo-data:/data/db
+  
+  mongo_init:
+    image: lutria/mongo-init
+    build: ./mongo-init
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      - MONGO_APP_DATABASE=lutria
+      - MONGO_APP_PASSWORD_FILE=/run/secrets/mongo-app-password
+      - MONGO_APP_USERNAME_FILE=/run/secrets/mongo-app-username
+      - MONGO_ROOT_PASSWORD_FILE=/run/secrets/mongo-root-password
+      - MONGO_ROOT_USERNAME_FILE=/run/secrets/mongo-root-username
+    # container exits after initialisation is complete
+    restart: "no"
+    secrets:
+      - mongo-app-password
+      - mongo-app-username
+      - mongo-root-password
+      - mongo-root-username
+
+  nats:
+    image: nats:2.9.10-alpine
+    command: --http_port 8222 -js --sd /data
+    container_name: nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    restart: unless-stopped
+    volumes:
+      - nats-data:/data
+
+secrets:
+  minio-root-password:
+    file: ./secrets/minio-root-password
+  minio-root-username:
+    file: ./secrets/minio-root-username
+  mongo-app-password:
+    file: ./secrets/mongo-app-password
+  mongo-app-username:
+    file: ./secrets/mongo-app-username
+  mongo-keyfile:
+    file: ./secrets/mongo-keyfile
+  mongo-root-password:
+    file: ./secrets/mongo-root-password
+  mongo-root-username:
+    file: ./secrets/mongo-root-username
+
+volumes:
+  minio-data:
+  mongo-data:
+  nats-data:
